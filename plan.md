@@ -200,12 +200,3 @@ Caller (main backend)
 | Auth | Shared API key (X-API-Key header) |
 | Hosting | Railway |
 
----
-
-## Open Items
-
-- [ ] Embedding generation — called at write time (POST /episodic) or async?
-- [ ] Pagination strategy for GET /episodic/{user_id}
-- [ ] Multi-user isolation — enforce user_id scoping at middleware level?
-- [ ] Rate limiting on search endpoint
-- [ ] Health check endpoint for Railway

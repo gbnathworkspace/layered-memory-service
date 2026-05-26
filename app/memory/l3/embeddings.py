@@ -1,0 +1,13 @@
+from openai import AsyncOpenAI
+
+from app.core.config import settings
+
+_client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+
+async def embed(text: str) -> list[float]:
+    response = await _client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text,
+    )
+    return response.data[0].embedding
