@@ -21,7 +21,7 @@ graph TD
             C1[l1/crud.py\nProfile CRUD]
             C2[l2/crud.py\nSkill Graph CRUD]
             C3[l3/crud.py\nEpisodic CRUD]
-            EMB[l3/embeddings.py\nOpenAI Embedder]
+            EMB[l3/embeddings.py\nVoyage Embedder]
         end
 
         DAL[dal/mongo.py\nMongoDB Connection]
@@ -34,7 +34,7 @@ graph TD
         VS[Atlas Vector Search\nembedding index]
     end
 
-    OPENAI[OpenAI API\ntext-embedding-3-small]
+    VOYAGE[Voyage AI API\nvoyage-3]
 
     B -->|HTTP + X-API-Key| AUTH
     AUTH --> R1 & R2 & R3
@@ -42,8 +42,8 @@ graph TD
     R2 --> C2
     R3 --> C3
     C3 -->|POST /episodic — embed text| EMB
-    EMB -->|1536-dim vector| OPENAI
-    OPENAI -->|embedding| EMB
+    EMB -->|1024-dim vector| VOYAGE
+    VOYAGE -->|embedding| EMB
     C1 & C2 & C3 --> DAL
     DAL --> COL1 & COL2 & COL3
     COL3 --- VS
@@ -77,7 +77,7 @@ graph LR
         E1[session_id]
         E2[title + summary]
         E3[skill_update]
-        E4[embedding vector\n1536 dims]
+        E4[embedding vector\n1024 dims]
     end
 
     LLM[LLM Context\nWindow]
@@ -97,15 +97,15 @@ sequenceDiagram
     participant API as FastAPI
     participant CRUD as l3/crud.py
     participant EMB as embeddings.py
-    participant OAI as OpenAI API
+    participant OAI as Voyage AI API
     participant DB as MongoDB Atlas
 
     Caller->>API: POST /memory/episodic/{user_id}\n{ title, summary, topic, ... }
     API->>API: Verify X-API-Key
     API->>CRUD: save_session(user_id, data)
     CRUD->>EMB: embed(summary)
-    EMB->>OAI: POST /embeddings\ntext-embedding-3-small
-    OAI-->>EMB: [0.023, -0.041, ...] 1536 dims
+    EMB->>OAI: POST /embeddings\nvoyage-3
+    OAI-->>EMB: [0.023, -0.041, ...] 1024 dims
     EMB-->>CRUD: embedding vector
     CRUD->>DB: insert document\n{ ...data, embedding: [...] }
     DB-->>CRUD: inserted_id
@@ -123,15 +123,15 @@ sequenceDiagram
     participant API as FastAPI
     participant CRUD as l3/crud.py
     participant EMB as embeddings.py
-    participant OAI as OpenAI API
+    participant OAI as Voyage AI API
     participant DB as MongoDB Atlas Vector Search
 
     Caller->>API: POST /memory/episodic/{user_id}/search\n{ query: "struggled with graphs" }
     API->>API: Verify X-API-Key
     API->>CRUD: search_sessions(user_id, query)
     CRUD->>EMB: embed(query)
-    EMB->>OAI: POST /embeddings
-    OAI-->>EMB: query vector
+    EMB->>OAI: POST /embeddings\nvoyage-3
+    OAI-->>EMB: query vector 1024 dims
     EMB-->>CRUD: query vector
     CRUD->>DB: $vectorSearch\n{ queryVector, limit: k }
     DB-->>CRUD: top-k session docs + scores
