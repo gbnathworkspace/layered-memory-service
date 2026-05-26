@@ -70,9 +70,9 @@ The service separates memory into three layers, each with a dedicated storage st
 └─────────────────┼────────────────────────────────┘
                   │
        ┌──────────▼──────────┐        ┌────────────────┐
-       │    MongoDB Atlas     │        │   OpenAI API   │
-       │  profiles            │        │ text-embedding │
-       │  skill_graph         │        │  -3-small      │
+       │    MongoDB Atlas     │        │  Voyage AI API │
+       │  profiles            │        │   voyage-3     │
+       │  skill_graph         │        │  (1024 dims)   │
        │  sessions ──► VSI   │        └────────────────┘
        └─────────────────────┘
                   ▲ vector search index (VSI)
@@ -104,7 +104,7 @@ layered-memory-service/
 │   │   │   └── crud.py        # Skill node create / read / update / delete
 │   │   └── l3/
 │   │       ├── crud.py        # Episodic session create / read / search / delete
-│   │       └── embeddings.py  # OpenAI embedding call wrapper
+│   │       └── embeddings.py  # Voyage AI embedding call wrapper
 │   │
 │   ├── dal/
 │   │   └── mongo.py           # MongoDB client, collection accessors, index setup
@@ -132,7 +132,7 @@ layered-memory-service/
 | `main.py` | Boot FastAPI, register routers, manage DB lifespan |
 | `api/routes/` | HTTP interface — parse requests, call CRUD, return responses |
 | `memory/*/crud.py` | Business logic — query construction, document assembly |
-| `memory/l3/embeddings.py` | Isolated OpenAI call — takes a string, returns a float list |
+| `memory/l3/embeddings.py` | Isolated Voyage AI call — takes a string, returns a float list |
 | `dal/mongo.py` | Single source of truth for the DB connection and collection handles |
 | `models/` | Pydantic schemas for request validation and response serialization |
 | `core/config.py` | All env vars in one place — nothing else reads `os.environ` directly |
@@ -150,7 +150,7 @@ All configuration is read from environment variables. In local development, plac
 MONGODB_URI=mongodb+srv://<user>:<pass>@<cluster>.mongodb.net/<dbname>?retryWrites=true&w=majority
 MONGODB_DB_NAME=layered_memory
 
-OPENAI_API_KEY=sk-...
+VOYAGE_API_KEY=pa-...
 
 MEMORY_SERVICE_API_KEY=your-internal-shared-secret
 
@@ -166,7 +166,7 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     mongodb_uri: str
     mongodb_db_name: str = "layered_memory"
-    openai_api_key: str
+    voyage_api_key: str
     memory_service_api_key: str
     log_level: str = "INFO"
 
@@ -234,7 +234,7 @@ db.sessions.createIndex({ "session_id": 1 }, { unique: true })
 // Atlas Vector Search index (created via Atlas UI or API, not driver)
 // Index name: "session_embedding_index"
 // Field: "embedding"
-// Dimensions: 1536
+// Dimensions: 1024
 // Similarity: cosine
 ```
 
@@ -292,7 +292,7 @@ The vector search index is an **Atlas Search index**, not a regular MongoDB inde
   "date": "2026-05-22",
   "title": "BFS/DFS revision",
   "summary": "User revised BFS and DFS. Strong on cycle detection. Struggled with negative weight cycles.",
-  "embedding": [0.023, -0.041, "... 1536 floats total"],
+  "embedding": [0.023, -0.041, "... 1024 floats total"],
   "skill_update": {
     "current_level": "medium",
     "weak_areas": ["negative weight cycles"],
@@ -302,7 +302,7 @@ The vector search index is an **Atlas Search index**, not a regular MongoDB inde
 }
 ```
 
-The `embedding` field stores the 1536-dimensional vector produced by OpenAI `text-embedding-3-small` from the `summary` field. It is written at POST time and never updated — if a summary changes, delete and re-create the session document.
+The `embedding` field stores the 1024-dimensional vector produced by Voyage AI `voyage-3` from the `summary` field. It is written at POST time and never updated — if a summary changes, delete and re-create the session document.
 
 ---
 
@@ -339,8 +339,8 @@ The `embedding` field stores the 1536-dimensional vector produced by OpenAI `tex
 
 **Write path**:
 1. Caller POSTs a session summary (text).
-2. Service calls OpenAI `text-embedding-3-small` with the summary text.
-3. Returns a 1536-dim float vector.
+2. Service calls Voyage AI `voyage-3` with the summary text.
+3. Returns a 1024-dim float vector.
 4. Service stores the full document including the embedding vector.
 5. Atlas Vector Search indexes the vector asynchronously (seconds after write).
 
@@ -603,7 +603,7 @@ Save a session summary. Triggers embedding generation synchronously before stori
 }
 ```
 
-**Internally**: `summary` is sent to OpenAI for embedding. The resulting 1536-dim vector is stored alongside the document. This adds ~300–600ms latency to the write.
+**Internally**: `summary` is sent to Voyage AI for embedding. The resulting 1024-dim vector is stored alongside the document. This adds ~200–400ms latency to the write.
 
 **Response `201`**:
 ```json
@@ -631,7 +631,7 @@ Semantic vector search over past sessions.
 | `limit` | int | no (default 5) | Max number of results |
 | `topic` | string | no | Pre-filter by topic before vector search |
 
-**Internally**: `query` is embedded via OpenAI, then `$vectorSearch` runs against the `sessions` collection using the `session_embedding_index`. Results are ranked by cosine similarity.
+**Internally**: `query` is embedded via Voyage AI, then `$vectorSearch` runs against the `sessions` collection using the `session_embedding_index`. Results are ranked by cosine similarity.
 
 **Response `200`**:
 ```json
@@ -679,30 +679,30 @@ No auth required. Used by Railway for liveness probing.
 
 Embeddings are generated in `memory/l3/embeddings.py`.
 
-**Model**: `text-embedding-3-small` (OpenAI)  
-**Output dimensions**: 1536  
+**Model**: `voyage-3` (Voyage AI)  
+**Output dimensions**: 1024  
 **Input**: The `summary` field of an episodic session (plain text, typically 50–300 words)  
 **Similarity metric**: Cosine similarity (configured on the Atlas vector index)
 
 ```python
-import openai
+import voyageai
 from app.core.config import settings
 
-client = openai.AsyncOpenAI(api_key=settings.openai_api_key)
+client = voyageai.AsyncClient(api_key=settings.voyage_api_key)
 
 async def embed(text: str) -> list[float]:
-    response = await client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
+    response = await client.embed(
+        texts=[text],
+        model="voyage-3"
     )
-    return response.data[0].embedding  # list of 1536 floats
+    return response.embeddings[0]  # list of 1024 floats
 ```
 
-**Why `text-embedding-3-small`**:
-- 1536 dimensions matches Atlas Vector Search default index config.
+**Why `voyage-3`**:
+- State-of-the-art retrieval quality — outperforms OpenAI text-embedding-3-large on MTEB benchmarks.
+- 1024 dimensions keeps the Atlas vector index lean and search latency low.
 - Cost-effective for high write volume (each session save = 1 embedding call).
-- Quality is sufficient for session-level semantic retrieval at single-user scale.
-- Upgrade to `text-embedding-3-large` (3072 dims) only if retrieval quality degrades at scale.
+- Upgrade to `voyage-3-large` only if retrieval quality degrades at scale (same 1024 dims, stronger model).
 
 **Embedding is synchronous at write time**: The POST `/episodic` response is not returned until the embedding is complete and the document is stored. This is simpler than an async queue and acceptable given that session saves are low-frequency (once per session, not per message).
 
@@ -724,7 +724,7 @@ Must be created once via the Atlas UI or API before the search endpoint works.
       {
         "type": "vector",
         "path": "embedding",
-        "numDimensions": 1536,
+        "numDimensions": 1024,
         "similarity": "cosine"
       },
       {
@@ -750,7 +750,7 @@ pipeline = [
         "$vectorSearch": {
             "index": "session_embedding_index",
             "path": "embedding",
-            "queryVector": query_embedding,   # 1536-dim float list
+            "queryVector": query_embedding,   # 1024-dim float list
             "numCandidates": limit * 10,      # oversample, then re-rank
             "limit": limit,
             "filter": {
@@ -794,7 +794,7 @@ HTTP POST /memory/episodic/gopinath
   │
   ├─ l3/crud.py: save_session(user_id, data)
   │   ├─ generates session_id = uuid4()
-  │   ├─ calls embeddings.embed(data.summary) → awaits OpenAI
+  │   ├─ calls embeddings.embed(data.summary) → awaits Voyage AI
   │   └─ assembles full document dict with embedding + timestamps
   │
   ├─ dal/mongo.py: get_sessions_collection().insert_one(doc)
@@ -813,7 +813,7 @@ HTTP POST /memory/episodic/gopinath/search
   │   └─ validates SearchQuery body
   │
   ├─ l3/crud.py: search_sessions(user_id, query, limit, topic)
-  │   ├─ calls embeddings.embed(query.query) → awaits OpenAI
+  │   ├─ calls embeddings.embed(query.query) → awaits Voyage AI
   │   ├─ builds $vectorSearch pipeline with user_id filter
   │   └─ runs aggregate() on sessions collection
   │
@@ -907,10 +907,10 @@ All errors return a JSON body of the form:
 | `403 Forbidden` | Missing or invalid `X-API-Key` |
 | `404 Not Found` | Document not found for given `user_id` / `topic` / `session_id` |
 | `409 Conflict` | Attempt to create a resource that already exists |
-| `500 Internal Server Error` | Unhandled exception (MongoDB error, OpenAI timeout, etc.) |
+| `500 Internal Server Error` | Unhandled exception (MongoDB error, Voyage AI timeout, etc.) |
 | `503 Service Unavailable` | MongoDB connection failed at startup |
 
-**OpenAI failures**: If the embedding call fails (rate limit, network error), the session write returns `500`. The caller should retry. The document is not partially written — the insert only happens after the embedding succeeds.
+**Voyage AI failures**: If the embedding call fails (rate limit, network error), the session write returns `500`. The caller should retry. The document is not partially written — the insert only happens after the embedding succeeds.
 
 ---
 
@@ -958,5 +958,5 @@ These are unresolved design decisions that will need answers before production:
 | Embedding at write time vs async | Sync (current plan) — simpler. Async queue (Celery/Redis) — lower write latency | **Sync** until write latency is measured as a problem. Session saves are infrequent. |
 | Pagination strategy for `GET /episodic` | Offset-based (simple) vs cursor-based (stable under concurrent writes) | **Offset** for now. Switch to cursor if users accumulate >500 sessions. |
 | Multi-user isolation enforcement | Application-level (current) vs middleware-level `user_id` injection | Consider middleware injection if the number of callers grows — reduces risk of caller bugs leaking cross-user data. |
-| Rate limiting on `/search` | Per-user limit in middleware (slowapi) vs upstream API gateway | Add `slowapi` rate limiting on `/search` before any production traffic — it triggers an OpenAI call on every request. |
+| Rate limiting on `/search` | Per-user limit in middleware (slowapi) vs upstream API gateway | Add `slowapi` rate limiting on `/search` before any production traffic — it triggers a Voyage AI call on every request. |
 | Full user deletion cascade | Manual (caller deletes profile → skills → sessions) vs single endpoint | Add `DELETE /memory/user/{user_id}` that cascades all three collections atomically if GDPR or data retention is a concern. |

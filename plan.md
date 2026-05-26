@@ -121,7 +121,7 @@ DELETE /memory/episodic/{user_id}/{session_id}     → delete a session entry
   "date": "2026-05-22",
   "title": "BFS/DFS revision",
   "summary": "User revised BFS and DFS. Strong on cycle detection. Struggled with negative weight cycles.",
-  "embedding": [0.023, -0.041, "...1536 dims"],
+  "embedding": [0.023, -0.041, "...1024 dims"],
   "skill_update": {
     "current_level": "medium",
     "weak_areas": ["negative weight cycles"],
@@ -159,7 +159,7 @@ layered-memory-service/
         crud.py             ← skill graph read/write logic
       l3/
         crud.py             ← episodic read/write logic
-        embeddings.py       ← OpenAI embedding calls
+        embeddings.py       ← Voyage AI embedding calls
     dal/
       mongo.py              ← MongoDB connection
     models/
@@ -196,7 +196,7 @@ Caller (main backend)
 | Framework | FastAPI (Python) |
 | Database | MongoDB Atlas |
 | Vector Search | MongoDB Atlas Vector Search |
-| Embeddings | OpenAI text-embedding-3-small (1536 dims) |
+| Embeddings | Voyage AI voyage-3 (1024 dims) |
 | Auth | Shared API key (X-API-Key header) |
 | Hosting | Railway |
 
