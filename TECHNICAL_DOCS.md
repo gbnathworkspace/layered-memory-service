@@ -955,7 +955,7 @@ These are unresolved design decisions that will need answers before production:
 
 | Question | Options | Recommendation |
 |---|---|---|
-| Embedding at write time vs async | Sync (current plan) — simpler. Async queue (Celery/Redis) — lower write latency | **Sync** until write latency is measured as a problem. Session saves are infrequent. |
+| ~~Embedding at write time vs async~~ | **Decided: synchronous at write time.** Session saves are once-per-session, not per-message. Async queue (Celery/Redis) adds a worker process, retry logic, and observability overhead that isn't justified until latency is measured as a real problem. | — |
 | Pagination strategy for `GET /episodic` | Offset-based (simple) vs cursor-based (stable under concurrent writes) | **Offset** for now. Switch to cursor if users accumulate >500 sessions. |
 | Multi-user isolation enforcement | Application-level (current) vs middleware-level `user_id` injection | Consider middleware injection if the number of callers grows — reduces risk of caller bugs leaking cross-user data. |
 | Rate limiting on `/search` | Per-user limit in middleware (slowapi) vs upstream API gateway | Add `slowapi` rate limiting on `/search` before any production traffic — it triggers a Voyage AI call on every request. |
