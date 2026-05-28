@@ -198,7 +198,7 @@ Caller (main backend)
 | Vector Search | MongoDB Atlas Vector Search |
 | Embeddings | Voyage AI voyage-3 (1024 dims) |
 | Auth | Shared API key (X-API-Key header) |
-| Hosting | Railway |
+| Hosting | AWS EC2 |
 
 ---
 
@@ -208,4 +208,4 @@ Caller (main backend)
 - [ ] Pagination strategy for GET /episodic/{user_id}
 - [ ] Multi-user isolation — enforce user_id scoping at middleware level?
 - [ ] Rate limiting on search endpoint
-- [ ] Health check endpoint for Railway
+- [ ] Health check endpoint for ALB / nginx health probe

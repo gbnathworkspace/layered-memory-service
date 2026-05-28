@@ -47,7 +47,7 @@ The service separates memory into three layers, each with a dedicated storage st
                  │ HTTP + X-API-Key
                  ▼
 ┌──────────────────────────────────────────────────┐
-│              FastAPI Service (Railway)            │
+│              FastAPI Service (AWS EC2)            │
 │                                                  │
 │  ┌─────────────────────────────────────────┐    │
 │  │         API Key Middleware               │    │
@@ -142,7 +142,7 @@ layered-memory-service/
 
 ## 4. Configuration & Environment
 
-All configuration is read from environment variables. In local development, place these in a `.env` file. In Railway, set them as service variables.
+All configuration is read from environment variables. In local development, place these in a `.env` file. In production on EC2, set them in `/etc/layered-memory.env` (loaded by the systemd unit) or export them in the shell before running.
 
 ```env
 # .env.example
@@ -360,7 +360,7 @@ This keeps latency low and the context window clean for messages that don't need
 ## 8. API Reference
 
 All endpoints require: `X-API-Key: <secret>` header.  
-Base URL (Railway): `https://<your-service>.railway.app`
+Base URL: `http://<ec2-ip-or-domain>:8000` (put nginx in front for TLS)
 
 ---
 
@@ -666,7 +666,7 @@ Delete a single session document by its `session_id`.
 
 #### `GET /health`
 
-No auth required. Used by Railway for liveness probing.
+No auth required. Used by nginx / ALB for liveness probing.
 
 **Response `200`**:
 ```json
@@ -916,21 +916,93 @@ All errors return a JSON body of the form:
 
 ## 14. Deployment
 
-### Railway
+### AWS EC2
 
-1. Connect the GitHub repo to a Railway service.
-2. Set all environment variables from Section 4 in Railway's service settings.
-3. Railway auto-detects Python and runs `uvicorn main:app --host 0.0.0.0 --port $PORT`.
-4. The `/health` endpoint is used for Railway's health probe — configure it in Railway's networking settings.
+#### One-time EC2 setup
+
+```bash
+# 1. SSH into the instance
+ssh -i <key.pem> ec2-user@<ec2-ip>
+
+# 2. Install Python 3.11+
+sudo dnf install python3.11 python3.11-pip -y   # Amazon Linux 2023
+# or: sudo apt install python3.11 python3.11-venv -y   # Ubuntu
+
+# 3. Clone the repo
+git clone https://github.com/gbnathworkspace/layered-memory-service.git
+cd layered-memory-service
+
+# 4. Create virtualenv and install deps
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# 5. Write production env vars (non-secret ones; secrets come from SSM)
+sudo tee /etc/layered-memory.env <<EOF
+APP_ENV=production
+AWS_REGION=ap-south-1
+DB_SSM_PARAM_NAME=/mentorman/mongodb-uri
+MONGODB_DB_NAME=layered_memory
+LOG_LEVEL=INFO
+PORT=8000
+EOF
+sudo chmod 600 /etc/layered-memory.env
+
+# 6. Install and enable the systemd service
+sudo cp layered-memory.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable layered-memory
+sudo systemctl start layered-memory
+
+# 7. Check it's running
+sudo systemctl status layered-memory
+curl http://localhost:8000/health
+```
+
+#### IAM permissions required
+
+The EC2 instance profile must have an IAM policy allowing:
+
+```json
+{
+  "Effect": "Allow",
+  "Action": "ssm:GetParameter",
+  "Resource": [
+    "arn:aws:ssm:ap-south-1:<account-id>:parameter/voyageapikey",
+    "arn:aws:ssm:ap-south-1:<account-id>:parameter/mentorman/mongodb-uri",
+    "arn:aws:ssm:ap-south-1:<account-id>:parameter/layered-memory-service/api-key"
+  ]
+}
+```
+
+boto3 picks up the instance profile credentials automatically — no `AWS_ACCESS_KEY_ID` needed.
+
+#### Security group
+
+Open inbound port `8000` (or `443` if nginx with TLS is in front) only to the private IP of the calling backend — never to `0.0.0.0/0`.
+
+#### Updating the service
+
+```bash
+cd /home/ec2-user/layered-memory-service
+git pull origin main
+source venv/bin/activate
+pip install -r requirements.txt
+sudo systemctl restart layered-memory
+```
+
+---
 
 ### MongoDB Atlas Setup
 
 1. Create an Atlas cluster (M0 free tier is sufficient for development).
 2. Create a database named `layered_memory` (or match `MONGODB_DB_NAME`).
 3. Create the three collections: `profiles`, `skill_graph`, `sessions`.
-4. Create the regular indexes (can be done via the Atlas UI or via the app's startup routine in `dal/mongo.py`).
+4. Create the regular indexes (the app does this automatically in `dal/mongo.py` at startup).
 5. Create the Vector Search index named `session_embedding_index` as defined in Section 10.
-6. Whitelist the Railway service's outbound IP (or allow all: `0.0.0.0/0`) in Atlas Network Access.
+6. Whitelist the EC2 instance's Elastic IP in Atlas Network Access.
+
+---
 
 ### Local Development
 

@@ -27,6 +27,7 @@ class Settings(BaseSettings):
     voyage_api_key: str
     memory_service_api_key: str
     log_level: str = "INFO"
+    port: int = 8000
 
     model_config = {"env_file": ".env"}
 
@@ -44,6 +45,7 @@ def _load_settings() -> Settings:
             voyage_api_key=_ssm_get(_SSM_VOYAGE_API_KEY),
             memory_service_api_key=_ssm_get(_SSM_MEMORY_SERVICE_API_KEY),
             log_level=os.getenv("LOG_LEVEL", "INFO"),
+            port=int(os.getenv("PORT", "8000")),
         )
 
     logger.info("Local: loading secrets from .env")
