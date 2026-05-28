@@ -8,7 +8,7 @@ graph TD
         B[LLM Backend / Main App]
     end
 
-    subgraph API["FastAPI Service (Railway)"]
+    subgraph API["FastAPI Service (AWS EC2)"]
         AUTH[X-API-Key Middleware]
 
         subgraph Routes["api/routes/"]
