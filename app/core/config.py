@@ -18,7 +18,7 @@ def _ssm_get(param_name: str) -> str:
     import boto3
     client = boto3.client("ssm", region_name=os.getenv("AWS_REGION", "ap-south-1"))
     resp = client.get_parameter(Name=param_name, WithDecryption=True)
-    return resp["Parameter"]["Value"]
+    return resp["Parameter"]["Value"].strip()
 
 
 class Settings(BaseSettings):
